@@ -89,7 +89,7 @@ void generate_palette_from_ida(uint32_t* palette, const uint32_t* c1, const uint
 
 // Corresponds to sub_45B630
 // Generates an 8-color palette by interpolating between two RGB colors.
-void generate_palette_mode1(uint32_t* param_1, uint32_t* param_2, uint32_t* param_3)
+void generate_palette_mode1(uint32_t* palette, uint32_t* colors1, uint32_t* colors2)
 {
     uint32_t row;
     uint32_t* output_ptr;
@@ -99,17 +99,17 @@ void generate_palette_mode1(uint32_t* param_1, uint32_t* param_2, uint32_t* para
     uint32_t* weight_ptr;
     
     row = 0;
-    output_ptr = param_1;
+    output_ptr = palette;
     weight = 6;
     
     do {
         col = 3;
-        input_ptr = param_3;
+        input_ptr = colors2;
         weight_ptr = output_ptr;
         
         do {
-            uint32_t offset = (uint32_t)((uint32_t)param_2 - (uint32_t)param_3);
-            uint32_t weighted_input = *(uint32_t*)(offset + (uint32_t)input_ptr) * weight + 2;
+            uint32_t offset = (uint32_t)(colors1 - colors2);
+            uint32_t weighted_input = *(uint32_t*)(offset + input_ptr) * weight + 2;
             uint32_t scaled_value = *input_ptr * row;
             *weight_ptr = (weighted_input + scaled_value) / 6;
             
@@ -125,10 +125,10 @@ void generate_palette_mode1(uint32_t* param_1, uint32_t* param_2, uint32_t* para
     } while (weight < 0x80000000);  // Loop while weight is positive (not negative)
     
     // Clear last row (or set to transparent)
-    param_1[28] = 0;  // 0x1c = 28
-    param_1[29] = 0;  // 0x1d = 29
-    param_1[30] = 0;  // 0x1e = 30
-    param_1[31] = 0;  // 0x1f = 31
+    palette[28] = 0;  // 0x1c = 28
+    palette[29] = 0;  // 0x1d = 29
+    palette[30] = 0;  // 0x1e = 30
+    palette[31] = 0;  // 0x1f = 31
     
     return;
 }
