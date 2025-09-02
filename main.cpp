@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstdint>
 #include <algorithm>
+#include <cctype>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -350,7 +351,7 @@ void decode_block(int width, int x, int y, uint32_t* image_buffer, const std::ve
 // Corresponds to ProcessTextureBlocks
 void decompress_image(uint32_t* decompressed_output, const char* compressed_input, int width, int height) {
     const uint32_t* data_ptr = reinterpret_cast<const uint32_t*>(compressed_input);
-
+	
     for (int y = 0; y < height; y += 4) {
         for (int x = 0; x < width; x += 8) {
             std::vector<uint32_t> block_data(4);
@@ -360,18 +361,33 @@ void decompress_image(uint32_t* decompressed_output, const char* compressed_inpu
             block_data[2] = data_ptr[2]; // Corresponds to a7
             block_data[3] = data_ptr[3]; // Corresponds to a8
             data_ptr += 4;
-            decode_block(width, x, y, decompressed_output, block_data);
+			decode_block(width, x, y, decompressed_output, block_data);
         }
     }
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 3) {
-        std::cerr << "Usage: " << argv[0] << " <input_texture_file> <output_png_file>" << std::endl;
+	std::cout << "Mdk2VqTex (c) 2025 TurboSosiska a.k.a. Rusya" << std::endl;
+	std::cout << "ubijca16@gmail.com" << std::endl;
+	
+	bool do_flip = false;
+    if (argc < 3 || argc > 4) {
+        std::cerr << "Usage: " << argv[0] << " <input_texture_file> <output_png_file> [flip]" << std::endl;
+		std::cerr << "flip: true/false - whether to perform a flip on Y axis" << std::endl;
         return 1;
     }
     std::string input_path = argv[1];
     std::string output_path = argv[2];
+	
+	if(argc == 4)
+	{
+		std::string flip_arg = argv[3];
+		std::transform(flip_arg.begin(), flip_arg.end(), flip_arg.begin(),
+			[](unsigned char c){ return std::tolower(c); });
+		
+		do_flip = flip_arg == "true";
+	}
+	
     std::ifstream file(input_path, std::ios::binary);
     if (!file) {
         std::cerr << "Error: Cannot open input file: " << input_path << std::endl;
@@ -400,15 +416,29 @@ int main(int argc, char* argv[]) {
     std::cout << "Texture Info:" << std::endl;
     std::cout << "  Dimensions: " << width << "x" << height << std::endl;
     std::vector<uint32_t> decompressed_image_buffer(width * height);
-    const char* pixel_data_ptr = buffer.data() + sizeof(TextureHeader);
+	
+    const char* pixel_data_ptr = buffer.data() + sizeof(TextureHeader) + 80;//That 80 is needed to remove the garbage data from the output image
     decompress_image(decompressed_image_buffer.data(), pixel_data_ptr, width, height);
+	
+	if(do_flip)
+	{
+		std::cout << "Performing a flip on Y axis..." << std::endl;
+		for (int y = 0; y < height / 2; ++y)
+		{
+			auto* row1 = decompressed_image_buffer.data() + y * width;
+			auto* row2 = decompressed_image_buffer.data() + (height - 1 - y) * width;
+			std::swap_ranges(row1, row1 + width, row2);
+		}
+	}
+	
     for (uint32_t& pixel : decompressed_image_buffer) {
         uint32_t a = (pixel >> 24) & 0xFF;
-        uint32_t r = (pixel >> 0)  & 0xFF;
+        uint32_t r = (pixel >> 16) & 0xFF;
         uint32_t g = (pixel >> 8)  & 0xFF;
-        uint32_t b = (pixel >> 16) & 0xFF;
+        uint32_t b = (pixel >> 0)  & 0xFF;
         pixel = (a << 24) | (b << 16) | (g << 8) | r;
     }
+	
     int channels = 4;
     if (stbi_write_png(output_path.c_str(), width, height, channels, decompressed_image_buffer.data(), width * channels)) {
         std::cout << "Successfully decompressed and saved texture to " << output_path << std::endl;
