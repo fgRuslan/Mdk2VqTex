@@ -4,7 +4,7 @@ This is a utility that reads a texture from a .tex file and produces a PNG outpu
 
 This texture format is used in MDK2 game, a game of my childhood :3
 
-To compile just use:
+To compile you can use CMake or:
 ```
 g++ -o main main.cpp -std=c++11
 ```

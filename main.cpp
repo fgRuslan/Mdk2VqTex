@@ -89,48 +89,31 @@ void generate_palette_from_ida(uint32_t* palette, const uint32_t* c1, const uint
 
 // Corresponds to sub_45B630
 // Generates an 8-color palette by interpolating between two RGB colors.
-void generate_palette_mode1(uint32_t* palette, uint32_t* colors1, uint32_t* colors2)
+void generate_palette_mode1(uint32_t* palette, const uint32_t* colors1, const uint32_t* colors2)
 {
-    uint32_t row;
-    uint32_t* output_ptr;
-    uint32_t weight;
-    uint32_t col;
-    uint32_t* input_ptr;
-    uint32_t* weight_ptr;
-    
-    row = 0;
-    output_ptr = palette;
-    weight = 6;
-    
-    do {
-        col = 3;
-        input_ptr = colors2;
-        weight_ptr = output_ptr;
+    // This function generates 7 interpolated colors and one transparent color.
+    // The loop iterates 7 times to generate the main part of the palette.
+    for (int i = 0; i < 7; ++i) {
+        uint32_t row = i;         // Corresponds to the weight of colors1
+        uint32_t weight = 6 - i;  // Corresponds to the weight of colors2
+
+        uint32_t* output_ptr = palette + (i * 4); // Point to the start of the current color in the palette
+
+        // Interpolate the R, G, B components
+        for (int comp = 0; comp < 3; ++comp) {
+            uint32_t term1 = colors1[comp] * weight;
+            uint32_t term2 = colors2[comp] * row;
+            output_ptr[comp] = (term1 + term2 + 2) / 6;
+        }
         
-        do {
-            uint32_t offset = (uint32_t)(colors1 - colors2);
-            uint32_t weighted_input = *(uint32_t*)(offset + input_ptr) * weight + 2;
-            uint32_t scaled_value = *input_ptr * row;
-            *weight_ptr = (weighted_input + scaled_value) / 6;
-            
-            input_ptr++;
-            weight_ptr++;
-            col--;
-        } while (col != 0);
-        
-        row++;
         output_ptr[3] = 0xFF;  // Set alpha channel to opaque
-        weight--;
-        output_ptr += 4;  // Move to next row (assuming RGBA format)
-    } while (weight < 0x80000000);  // Loop while weight is positive (not negative)
+    }
     
-    // Clear last row (or set to transparent)
-    palette[28] = 0;  // 0x1c = 28
-    palette[29] = 0;  // 0x1d = 29
-    palette[30] = 0;  // 0x1e = 30
-    palette[31] = 0;  // 0x1f = 31
-    
-    return;
+    // Set the 8th and final color to transparent black
+    palette[28] = 0;
+    palette[29] = 0;
+    palette[30] = 0;
+    palette[31] = 0;
 }
 
 
