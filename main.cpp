@@ -285,7 +285,7 @@ void sub_45BCE0(int width, int x, int y, uint32_t* image_buffer, const std::vect
     bool v58 = (a8 >> 28) & 1;
     uint32_t c[3][4] = {{0}};
 
-    // This function also reads color data component-first, like sub_45BB00.
+    // This function reads color data component-first.
     // It reads the R for all 3 colors, then G for all 3, then B for all 3.
     int base_bit_index = 79;
     // Outer loop iterates through components (R, G, B)
@@ -303,25 +303,40 @@ void sub_45BCE0(int width, int x, int y, uint32_t* image_buffer, const std::vect
         base_bit_index += 5; // Move to the start of the next component's data.
     }
 
-    // Finalize the colors: apply the ">> 5" replication and set alpha.
-    for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            c[i][j] |= c[i][j] >> 5;
-        }
-        c[i][3] = 255; // Set alpha to full opacity.
+    // Read the 5-bit Alpha for all 3 colors, matching the decompiled version's logic.
+    for (int bit_pos = 0; bit_pos < 5; ++bit_pos) {
+        int dest_bit = 3 + bit_pos;
+        int base_idx = 13 + bit_pos;
+        c[0][3] |= get_bit(pixel_data, base_idx + 96)  << dest_bit;
+        c[1][3] |= get_bit(pixel_data, base_idx + 101) << dest_bit;
+        c[2][3] |= get_bit(pixel_data, base_idx + 106) << dest_bit;
     }
 
-    // The rest of the logic for both the interpolated (v58) and non-interpolated
-    // paths was correct and can remain unchanged.
+    // Finalize the colors: apply the ">> 5" replication to all RGBA components.
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 4; ++j) { // Loop to 4 to include Alpha
+            c[i][j] |= c[i][j] >> 5;
+        }
+    }
+
+    // Interpolated path
     if (v58) {
         for (int block_idx = 0; block_idx < 2; ++block_idx) {
             uint32_t palette[4][4];
-            uint32_t* cA = (block_idx == 0) ? c[0] : c[1];
-            uint32_t* cB = (block_idx == 0) ? c[1] : c[2];
-
-            for(int j=0; j<4; ++j) {
-                for(int k=0; k<4; ++k) {
-                    palette[j][k] = (cA[k] * (3-j) + cB[k] * j + 1) / 3;
+            
+            if (block_idx == 0) {
+                // First block interpolates from c[0] to c[1]
+                for(int j=0; j<4; ++j) {
+                    for(int k=0; k<4; ++k) {
+                        palette[j][k] = (c[0][k] * (3-j) + c[1][k] * j + 1) / 3;
+                    }
+                }
+            } else {
+                // Second block interpolates from c[2] to c[1]
+                for(int j=0; j<4; ++j) {
+                    for(int k=0; k<4; ++k) {
+                        palette[j][k] = (c[2][k] * (3-j) + c[1][k] * j + 1) / 3;
+                    }
                 }
             }
             
@@ -346,6 +361,7 @@ void sub_45BCE0(int width, int x, int y, uint32_t* image_buffer, const std::vect
             }
         }
     } else {
+        // Non-interpolated path
         uint32_t* block_ptr = image_buffer + y * width + x;
         for (int row = 0; row < 4; ++row) {
             for (int col = 0; col < 8; ++col) {
@@ -357,7 +373,7 @@ void sub_45BCE0(int width, int x, int y, uint32_t* image_buffer, const std::vect
                 uint32_t r = (pal_idx < 3) ? c[pal_idx][0] : 0;
                 uint32_t g = (pal_idx < 3) ? c[pal_idx][1] : 0;
                 uint32_t b = (pal_idx < 3) ? c[pal_idx][2] : 0;
-                uint32_t a = (pal_idx < 3) ? c[pal_idx][3] : 255;
+                uint32_t a = (pal_idx < 3) ? c[pal_idx][3] : 0;
 
                 if (y + row < 1024 && x + col < 1024) {
                     block_ptr[row * width + col] = (a << 24) | (b << 16) | (g << 8) | r;
