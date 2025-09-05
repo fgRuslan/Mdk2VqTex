@@ -16,11 +16,11 @@
 
 #pragma pack(push,1)
 struct TextureHeader {
-    uint32_t magic;
-    uint32_t version;
+    uint32_t magic = 0x000007D1;
+    uint32_t version = 0x00000015;
     uint32_t width;
     uint32_t height;
-    uint32_t flags;
+    uint32_t flags = 0;
     uint32_t data_size;
 };
 #pragma pack(pop)
