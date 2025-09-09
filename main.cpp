@@ -102,6 +102,8 @@ int decompress(std::string input_path, std::string output_path, bool do_flip)
 int compress(std::string input_path, std::string output_path, bool do_flip)
 {
     int w, h, channels;
+	uint32_t contains_alpha = 0x0;
+	
     unsigned char* image_data = stbi_load(input_path.c_str(), &w, &h, &channels, 4);
     if (!image_data) {
         std::cerr << "Error: Cannot open or read input PNG: " << input_path << std::endl;
@@ -204,8 +206,12 @@ int compress(std::string input_path, std::string output_path, bool do_flip)
     // Create and populate the 80-byte metadata block.
     std::vector<char> metadata(80, 0);
     uint32_t* metadata_u32 = reinterpret_cast<uint32_t*>(metadata.data());
+	
+	contains_alpha = 0x01;
 
-    metadata_u32[3] = 0x28; // Compression flag + default
+	metadata_u32[2] = contains_alpha;
+	
+    metadata_u32[3] = 0x20; // Compression flag
     metadata_u32[5] = 0x54455843; // "CXET"
     metadata_u32[7] = w;
     metadata_u32[8] = h;
