@@ -392,6 +392,8 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8]) {
 
         std::vector<uint32_t> data(4, 0);
         uint32_t a8 = 0x60000000 | (static_cast<uint32_t>(v58) << 28);
+		
+		data[3] = a8;
         
         Color c[3];
         if (v58 == 0) { // Explicit RGBA colors
@@ -458,7 +460,7 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8]) {
                 }
             }
         }
-        data[3] = a8;
+        
         float err = compute_block_error(block_pixels, data);
         if (err < best_error) { best_error = err; best_data = data; }
     }
