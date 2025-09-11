@@ -207,7 +207,15 @@ int compress(std::string input_path, std::string output_path, bool do_flip)
     std::vector<char> metadata(80, 0);
     uint32_t* metadata_u32 = reinterpret_cast<uint32_t*>(metadata.data());
 	
-	contains_alpha = 0x01;
+    if (transparent_image)
+    {
+        contains_alpha = 0x01;
+        std::cout << "Setting the alpha bit to 0x01" << std::endl;
+    }
+    else
+    {
+        std::cout << "No alpha???" << std::endl;
+    }
 
 	metadata_u32[2] = contains_alpha;
 	

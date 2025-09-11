@@ -9,6 +9,9 @@
 #include <random>
 
 #include "decompressor.h"
+#include "compressor.h"
+
+bool transparent_image = false;
 
 // --- Lookup Tables (Values from original code) ---
 const uint32_t dword_4B3B80[] = { 0x40, 0x5E };
@@ -394,6 +397,7 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8]) {
         uint32_t a8 = 0x60000000 | (static_cast<uint32_t>(v58) << 28);
 		
 		data[3] = a8;
+
         
         Color c[3];
         if (v58 == 0) { // Explicit RGBA colors
@@ -476,6 +480,18 @@ void compress_image(const unsigned char* image_data, int width, int height, std:
         for (int bx = 0; bx < blocks_x; ++bx) {
             Color block[4][8];
             extract_block(image_data, width, height, bx, by, block);
+
+            for (int i = 0; i < 4; i++)
+            {
+                for (int j = 0; j < 8; j++)
+                {
+                    if (block[i][j].a != 255 && block[i][j].a != 0)
+                    {
+                        transparent_image = true;
+                    }
+                }
+            }
+
             std::vector<uint32_t> block_data = compress_block(block);
             const char* ptr = reinterpret_cast<const char*>(block_data.data());
             compressed.insert(compressed.end(), ptr, ptr + 16);
