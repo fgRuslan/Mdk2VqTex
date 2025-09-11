@@ -3,6 +3,7 @@
 #include <vector>
 #include <algorithm>
 #include <cctype>
+#include <string>
 
 #include "decompressor.h"
 #include "compressor.h"
@@ -34,7 +35,7 @@ bool endsWith(std::string const& fullString, std::string const& ending) {
     }
 }
 
-int decompress(std::string input_path, std::string output_path, bool do_flip)
+int decompress(std::string input_path, std::string output_path, bool do_flip, bool decompress_all_mips)
 {
     std::ifstream file(input_path, std::ios::binary);
     if (!file) {
@@ -63,37 +64,115 @@ int decompress(std::string input_path, std::string output_path, bool do_flip)
     }
     std::cout << "Texture Info:" << std::endl;
     std::cout << "  Dimensions: " << width << "x" << height << std::endl;
-    std::vector<uint32_t> decompressed_image_buffer(width * height);
 
-    const char* pixel_data_ptr = buffer.data() + sizeof(TextureHeader) + 80;//That 80 is needed to remove the garbage data from the output image
-    decompress_image(decompressed_image_buffer.data(), pixel_data_ptr, width, height);
+    if (decompress_all_mips) {
+        std::cout << "Decompressing all mipmaps..." << std::endl;
 
-    if (do_flip)
-    {
-        std::cout << "Performing a flip on Y axis..." << std::endl;
-        for (int y = 0; y < height / 2; ++y)
-        {
-            auto* row1 = decompressed_image_buffer.data() + y * width;
-            auto* row2 = decompressed_image_buffer.data() + (height - 1 - y) * width;
-            std::swap_ranges(row1, row1 + width, row2);
+        const uint32_t* metadata_u32 = reinterpret_cast<const uint32_t*>(buffer.data() + sizeof(TextureHeader));
+
+        // The compressor writes offsets in reverse order (smallest mip first).
+        // We read them into a temporary vector.
+        std::vector<uint32_t> mip_offsets_rev;
+        for (int i = 9; i < 20; ++i) { // Mip offsets are in metadata fields 9 through 19
+            uint32_t offset = metadata_u32[i];
+            if (offset > 0 && offset < size) {
+                mip_offsets_rev.push_back(offset);
+            }
+            else {
+                break; // Stop at the first invalid or zero offset
+            }
         }
-    }
 
-    for (uint32_t& pixel : decompressed_image_buffer) {
-        uint32_t a = (pixel >> 24) & 0xFF;
-        uint32_t r = (pixel >> 16) & 0xFF;
-        uint32_t g = (pixel >> 8) & 0xFF;
-        uint32_t b = (pixel >> 0) & 0xFF;
-        pixel = (a << 24) | (b << 16) | (g << 8) | r;
-    }
+        if (mip_offsets_rev.empty()) {
+            std::cerr << "Error: No mipmap offset data found in the header. Cannot extract all mips." << std::endl;
+            return 1;
+        }
 
-    int channels = 4;
-    if (stbi_write_png(output_path.c_str(), width, height, channels, decompressed_image_buffer.data(), width * channels)) {
-        std::cout << "Successfully decompressed and saved texture to " << output_path << std::endl;
+        std::vector<uint32_t> mip_offsets = mip_offsets_rev;
+        std::reverse(mip_offsets.begin(), mip_offsets.end());
+
+        std::string base_name;
+        std::string extension;
+        size_t dot_pos = output_path.find_last_of(".");
+        if (dot_pos != std::string::npos) {
+            base_name = output_path.substr(0, dot_pos);
+            extension = output_path.substr(dot_pos);
+        }
+        else {
+            base_name = output_path;
+            extension = ".png";
+        }
+
+        for (size_t i = 0; i < mip_offsets.size(); ++i) {
+            int mip_w = std::max(1, (int)header->width >> i);
+            int mip_h = std::max(1, (int)header->height >> i);
+
+            std::cout << "  Decompressing Mip " << i << " (" << mip_w << "x" << mip_h << ")..." << std::endl;
+
+            std::vector<uint32_t> decompressed_image_buffer(mip_w * mip_h);
+            const char* pixel_data_ptr = buffer.data() + mip_offsets[i];
+            decompress_image(decompressed_image_buffer.data(), pixel_data_ptr, mip_w, mip_h);
+
+            if (do_flip) {
+                for (int y = 0; y < mip_h / 2; ++y) {
+                    auto* row1 = decompressed_image_buffer.data() + y * mip_w;
+                    auto* row2 = decompressed_image_buffer.data() + (mip_h - 1 - y) * mip_w;
+                    std::swap_ranges(row1, row1 + mip_w, row2);
+                }
+            }
+
+            for (uint32_t& pixel : decompressed_image_buffer) {
+                uint32_t a = (pixel >> 24) & 0xFF;
+                uint32_t r = (pixel >> 16) & 0xFF;
+                uint32_t g = (pixel >> 8) & 0xFF;
+                uint32_t b = (pixel >> 0) & 0xFF;
+                pixel = (a << 24) | (b << 16) | (g << 8) | r;
+            }
+
+            std::string mip_output_path = base_name + "_mip" + std::to_string(i) + extension;
+            int channels = 4;
+            if (stbi_write_png(mip_output_path.c_str(), mip_w, mip_h, channels, decompressed_image_buffer.data(), mip_w * channels)) {
+                std::cout << "    Successfully saved to " << mip_output_path << std::endl;
+            }
+            else {
+                std::cerr << "    Error: Failed to write output PNG file: " << mip_output_path << std::endl;
+            }
+        }
+
     }
     else {
-        std::cerr << "Error: Failed to write output PNG file." << std::endl;
-        return 1;
+        std::vector<uint32_t> decompressed_image_buffer(width * height);
+
+        const char* pixel_data_ptr = buffer.data() + sizeof(TextureHeader) + 80;//That 80 is needed to remove the garbage data from the output image
+        decompress_image(decompressed_image_buffer.data(), pixel_data_ptr, width, height);
+
+        if (do_flip)
+        {
+            std::cout << "Performing a flip on Y axis..." << std::endl;
+            for (int y = 0; y < height / 2; ++y)
+            {
+                auto* row1 = decompressed_image_buffer.data() + y * width;
+                auto* row2 = decompressed_image_buffer.data() + (height - 1 - y) * width;
+                std::swap_ranges(row1, row1 + width, row2);
+            }
+        }
+
+        for (uint32_t& pixel : decompressed_image_buffer) {
+            uint32_t a = (pixel >> 24) & 0xFF;
+            uint32_t r = (pixel >> 16) & 0xFF;
+            uint32_t g = (pixel >> 8) & 0xFF;
+            uint32_t b = (pixel >> 0) & 0xFF;
+            pixel = (a << 24) | (b << 16) | (g << 8) | r;
+        }
+
+        int channels = 4;
+        if (stbi_write_png(output_path.c_str(), width, height, channels, decompressed_image_buffer.data(), width * channels)) {
+            std::cout << "Successfully decompressed and saved texture to " << output_path << std::endl;
+        }
+        else {
+            std::cerr << "Error: Failed to write output PNG file." << std::endl;
+            return 1;
+        }
     }
 
     return 0;
@@ -251,11 +330,14 @@ int main(int argc, char* argv[]) {
 	std::cout << "ubijca16@gmail.com" << std::endl << std::endl;
 	
 	bool do_flip = false;
-    if (argc < 3 || argc > 4) {
-        std::cerr << "Usage: " << argv[0] << " <input_file> <output_file> [flip]" << std::endl;
+    bool decompress_all_mips = false;
+
+    if (argc < 3 || argc > 5) {
+        std::cerr << "Usage: " << argv[0] << " <input_file> <output_file> [flip] [decompress_all_mips]" << std::endl;
 		std::cerr << "input_file: can be either TEX file or PNG file with the texture that you want to process" << std::endl;
         std::cerr << "output_file: can be either TEX file or PNG file with the output texture" << std::endl;
         std::cerr << "flip: true/false - whether to perform a flip on Y axis" << std::endl;
+        std::cerr << "decompress_all_mips: true/false - whether to decompress all the mipmaps" << std::endl;
 
         std::cerr << std::endl << "Examples:" << std::endl;
         std::cerr << "Mdk2VqTex texture.tex output.png true - this will convert texture.tex into output.png and flip it on Y axis" << std::endl;
@@ -270,7 +352,7 @@ int main(int argc, char* argv[]) {
     std::transform(input_path_lower.begin(), input_path_lower.end(), input_path_lower.begin(),
         [](unsigned char c) { return std::tolower(c); });
 
-    if (argc == 4)
+    if (argc >= 4)
     {
         std::string flip_arg = argv[3];
         std::transform(flip_arg.begin(), flip_arg.end(), flip_arg.begin(),
@@ -279,13 +361,24 @@ int main(int argc, char* argv[]) {
         do_flip = flip_arg == "true";
     }
 
+    if (argc == 5)
+    {
+        std::string mip_arg = argv[4];
+        std::transform(mip_arg.begin(), mip_arg.end(), mip_arg.begin(),
+            [](unsigned char c) { return std::tolower(c); });
+
+        std::cout << "mip_arg: " << mip_arg << std::endl;
+
+        decompress_all_mips = mip_arg == "true";
+    }
+
     if (endsWith(input_path_lower, "png"))
     {
         return compress(input_path, output_path, do_flip);
     }
     else
     {
-        return decompress(input_path, output_path, do_flip);
+        return decompress(input_path, output_path, do_flip, decompress_all_mips);
     }
 
     return 0;

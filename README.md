@@ -15,7 +15,7 @@ but at least I've done a huge analysis of the texture format earlier as well as 
 
 # Usage
 ```
-Mdk2VqTex <input> <output> [do_flip]
+Mdk2VqTex <input> <output> [do_flip] [decompress_all_mips]
 ```
 
 input is either a png file that has to be converted into tex file or a tex file that has to be converted into png.
@@ -23,5 +23,6 @@ input is either a png file that has to be converted into tex file or a tex file 
 output is obviously the output file of this utility.
 
 do_flip is a flag that specifies whether the texture must be flipped before saving. This is needed because of how OpenGL treats texture coordinates in the game.
+decompress_all_mips - when is set to true, makes the decompressor produce all the mipmaps from the texture file. I don't know why this could be needed, but just in case
 
-Currently this utility produces only the biggest mipmap of the texture when you convert it from tex to png, but when it comes to generating a tex file out of a png, all mipmaps get generated correctly.
+bleh bleh bleh I'm a silly silly kitty hehe :P :P :P :P
