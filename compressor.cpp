@@ -224,6 +224,8 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8]) {
 
                 uint32_t palette[16];
                 uint32_t c1_comps[4]={c1.r,c1.g,c1.b,c1.a}, c2_comps[4]={c2.r,c2.g,c2.b,c2.a};
+                c1_comps[1] = (c1_comps[1] & 0xF8) | (c1_comps[1] >> 6);
+                c2_comps[1] = (c2_comps[1] & 0xF8) | (c2_comps[1] >> 6);
                 generate_palette_from_ida(palette, c1_comps, c2_comps, false);
                 
                 int bit_stream_offset = dword_4B3B88[block_idx];
@@ -316,6 +318,8 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8]) {
 
             uint32_t palette[16];
             uint32_t c1_comps[4]={c1.r,c1.g,c1.b,c1.a}, c2_comps[4]={c2.r,c2.g,c2.b,c2.a};
+            c1_comps[1] = (c1_comps[1] & 0xF8) | (c1_comps[1] >> 6);
+            c2_comps[1] = (c2_comps[1] & 0xF8) | (c2_comps[1] >> 6);
             generate_palette_from_ida(palette, c1_comps, c2_comps, true);
             
             int bit_stream_offset = dword_4B3B88[block_idx];
@@ -401,7 +405,11 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8]) {
         
         Color c[3];
         if (v58 == 0) { // Explicit RGBA colors
-            kmeans_cluster(all_pixels, 3, c, true);
+            if (opaque_pixels.empty()) { // Safe fallback
+                c[0] = {0,0,0,255}; c[1] = {0,0,0,255}; c[2] = {0,0,0,255};
+            } else {
+                kmeans_cluster(opaque_pixels, 3, c, true);
+            }
         } else { // Interpolated RGBA colors
             std::vector<Color> left_p, right_p;
             for(int r=0; r<4; ++r) for(int col=0; col<4; ++col) left_p.push_back(block_pixels[r][col]);
@@ -485,7 +493,7 @@ void compress_image(const unsigned char* image_data, int width, int height, std:
             {
                 for (int j = 0; j < 8; j++)
                 {
-                    if (block[i][j].a != 255 && block[i][j].a != 0)
+                    if (block[i][j].a < 255)
                     {
                         transparent_image = true;
                     }

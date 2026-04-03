@@ -115,7 +115,7 @@ void sub_45B6D0(int width, int x, int y, uint32_t* image_buffer, const std::vect
         uint32_t color_base_offset = dword_4B3B80[block_idx];
         bool v11 = (block_idx == 0) ? ((a8 >> 29) & 1) : ((a8 >> 30) & 1);
 
-        for (int i = 0; i < 4; ++i) { // RGBA channels
+        for (int i = 0; i < 3; ++i) {
             uint32_t c1_comp_offset = color_base_offset;
             uint32_t c2_comp_offset = color_base_offset + 15;
             for (int bit_idx = 0; bit_idx < 5; ++bit_idx) {
@@ -126,9 +126,11 @@ void sub_45B6D0(int width, int x, int y, uint32_t* image_buffer, const std::vect
             c2[i] |= (c2[i] >> 5);
         }
 
-        c1[3] = (c1[3] & 0xF8) | (4 * v11);
+        c1[1] = (c1[1] & 0xF8) | (c1[1] >> 6) | (v11 ? 4 : 0);
+		
         if (!v27) {
-            c2[3] = (c2[3] & 0xF8) | (4 * (v11 ^ get_bit(pixel_data, dword_4B3B88[block_idx] + 1)));
+            bool xor_bit = get_bit(pixel_data, dword_4B3B88[block_idx] + 1);
+            c2[1] = (c2[1] & 0xF8) | (c2[1] >> 6) | ((v11 ^ xor_bit) ? 4 : 0);
         }
 
         uint32_t palette[4 * 4];
