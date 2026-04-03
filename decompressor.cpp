@@ -152,7 +152,7 @@ void sub_45B6D0(int width, int x, int y, uint32_t* image_buffer, const std::vect
                 uint32_t b = palette[palette_index * 4 + 2];
                 uint32_t a = palette[palette_index * 4 + 3];
 
-                if ((y + row < 1024) && (x + block_offset_x + col < 1024)) {
+                if ((y + row < width) && (x + block_offset_x + col < width)) {
                     block_ptr[row * width + col] = (a << 24) | (b << 16) | (g << 8) | r;
                 }
             }
@@ -194,7 +194,7 @@ void sub_45B930(int width, int x, int y, uint32_t* image_buffer, const std::vect
             uint32_t b = palette[palette_index * 4 + 2];
             uint32_t a = palette[palette_index * 4 + 3];
 
-            if (y + row < 1024 && x + col < 1024) {
+            if (y + row < width && x + col < width) {
                 block_ptr[row * width + col] = (a << 24) | (b << 16) | (g << 8) | r;
             }
         }
@@ -245,7 +245,7 @@ void sub_45BB00(int width, int x, int y, uint32_t* image_buffer, const std::vect
             uint32_t b = colors[palette_index][2];
             uint32_t a = colors[palette_index][3];
 
-            if (y + row < 1024 && x + col < 1024) {
+            if (y + row < width && x + col < width) {
                 block_ptr[row * width + col] = (a << 24) | (b << 16) | (g << 8) | r;
             }
         }
@@ -327,7 +327,7 @@ void sub_45BCE0(int width, int x, int y, uint32_t* image_buffer, const std::vect
                     uint32_t g = palette[pal_idx][1];
                     uint32_t b = palette[pal_idx][2];
                     uint32_t a = palette[pal_idx][3];
-                    if (y + row < 1024 && x + col + block_idx * 4 < 1024) {
+                    if (y + row < width && x + col + block_idx * 4 < width) {
                         block_ptr[row * width + col] = (a << 24) | (b << 16) | (g << 8) | r;
                     }
                 }
@@ -349,7 +349,7 @@ void sub_45BCE0(int width, int x, int y, uint32_t* image_buffer, const std::vect
                 uint32_t b = (pal_idx < 3) ? c[pal_idx][2] : 0;
                 uint32_t a = (pal_idx < 3) ? c[pal_idx][3] : 0;
 
-                if (y + row < 1024 && x + col < 1024) {
+                if (y + row < width && x + col < width) {
                     block_ptr[row * width + col] = (a << 24) | (b << 16) | (g << 8) | r;
                 }
             }

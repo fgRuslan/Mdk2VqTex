@@ -484,8 +484,16 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8]) {
 void compress_image(const unsigned char* image_data, int width, int height, std::vector<char>& compressed) {
     int blocks_x = (width + 7) / 8;
     int blocks_y = (height + 3) / 4;
-    for (int by = 0; by < blocks_y; ++by) {
-        for (int bx = 0; bx < blocks_x; ++bx) {
+	int total_blocks = blocks_x * blocks_y;
+
+    size_t start_size = compressed.size();
+    compressed.resize(start_size + total_blocks * 16);
+
+#pragma omp parallel for
+	for (int i = 0; i < total_blocks; ++i) {
+            int bx = i % blocks_x;
+            int by = i / blocks_x;
+
             Color block[4][8];
             extract_block(image_data, width, height, bx, by, block);
 
@@ -502,7 +510,8 @@ void compress_image(const unsigned char* image_data, int width, int height, std:
 
             std::vector<uint32_t> block_data = compress_block(block);
             const char* ptr = reinterpret_cast<const char*>(block_data.data());
-            compressed.insert(compressed.end(), ptr, ptr + 16);
+            for (int b = 0; b < 16; ++b) {
+                compressed[start_size + i * 16 + b] = ptr[b];
+            }
         }
-    }
 }

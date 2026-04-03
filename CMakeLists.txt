@@ -17,6 +17,8 @@ set(HEADERS
 	stb_image_write.h
 )
 
+find_package(OpenMP REQUIRED)
+
 add_executable(Mdk2VqTex ${SOURCES} ${HEADERS})
 
 set_target_properties(Mdk2VqTex
@@ -25,3 +27,4 @@ set_target_properties(Mdk2VqTex
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
 )
+target_link_libraries(Mdk2VqTex PUBLIC OpenMP::OpenMP_CXX)
