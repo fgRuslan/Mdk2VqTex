@@ -501,7 +501,7 @@ void compress_image(const unsigned char* image_data, int width, int height, std:
             {
                 for (int j = 0; j < 8; j++)
                 {
-                    if (block[i][j].a < 255)
+                    if (block[i][j].a != 255 && block[i][j].a != 0)
                     {
                         transparent_image = true;
                     }
