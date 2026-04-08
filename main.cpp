@@ -57,10 +57,8 @@ int decompress(std::string input_path, std::string output_path, bool do_flip, bo
     const TextureHeader* header = reinterpret_cast<const TextureHeader*>(buffer.data());
     int width = header->width;
     int height = header->height;
-    if (width <= 0 || width > 4096 || height <= 0 || height > 4096) {
+    if (width <= 0 || height <= 0) {
         std::cerr << "Error: Invalid texture dimensions in header (" << width << "x" << height << ")." << std::endl;
-        std::cerr << "You may need to adjust the TextureHeader struct or file offset." << std::endl;
-        return 1;
     }
     std::cout << "Texture Info:" << std::endl;
     std::cout << "  Dimensions: " << width << "x" << height << std::endl;
@@ -70,10 +68,23 @@ int decompress(std::string input_path, std::string output_path, bool do_flip, bo
 
         const uint32_t* metadata_u32 = reinterpret_cast<const uint32_t*>(buffer.data() + sizeof(TextureHeader));
 
+        
+        uint32_t metadata_u32_count = 9;//9 base fields
+        //scan starting from index 9 (the last base field) to find valid offsets
+        for (int i = 9; i < (size / sizeof(uint32_t)); ++i) {
+            uint32_t offset = metadata_u32[i];
+            if (offset > 0 && offset < size) {
+                metadata_u32_count = i + 1;
+            } else {
+                break;
+            }
+        }
+
         // The compressor writes offsets in reverse order (smallest mip first).
         // We read them into a temporary vector.
+        //TODO: check if it's the right order
         std::vector<uint32_t> mip_offsets_rev;
-        for (int i = 9; i < 20; ++i) { // Mip offsets are in metadata fields 9 through 19
+        for (int i = 9; i < metadata_u32_count; ++i) {
             uint32_t offset = metadata_u32[i];
             if (offset > 0 && offset < size) {
                 mip_offsets_rev.push_back(offset);
@@ -143,7 +154,20 @@ int decompress(std::string input_path, std::string output_path, bool do_flip, bo
     else {
         std::vector<uint32_t> decompressed_image_buffer(width * height);
 
-        const char* pixel_data_ptr = buffer.data() + sizeof(TextureHeader) + 80;//That 80 is needed to remove the garbage data from the output image
+        // Calculate dynamic metadata size for this file
+        const uint32_t* metadata_u32 = reinterpret_cast<const uint32_t*>(buffer.data() + sizeof(TextureHeader));
+        uint32_t metadata_u32_count = 9;
+        for (int i = 9; i < (size / sizeof(uint32_t)); ++i) {
+            uint32_t offset = metadata_u32[i];
+            if (offset > 0 && offset < static_cast<uint32_t>(size)) {
+                metadata_u32_count = i + 1;
+            } else {
+                break;
+            }
+        }
+        uint32_t metadata_size = metadata_u32_count * sizeof(uint32_t);
+
+        const char* pixel_data_ptr = buffer.data() + sizeof(TextureHeader) + metadata_size;
         decompress_image(decompressed_image_buffer.data(), pixel_data_ptr, width, height);
 
         if (do_flip)
@@ -257,8 +281,13 @@ int compress(std::string input_path, std::string output_path, bool do_flip)
     delete[] current_image_data;
     //stbi_image_free(image_data);
 
+    // Calculate dynamic metadata size: 9 base uint32_t fields + mip_offsets table
+    // Metadata starts with 9 fields (indices 0-8), then mipmap offsets follow
+    uint32_t metadata_u32_count = 9 + static_cast<uint32_t>(mip_sizes.size());
+    uint32_t metadata_size = metadata_u32_count * sizeof(uint32_t);
+
     // Calculate mipmap offsets
-    uint32_t current_offset = sizeof(TextureHeader) + 80; // Data starts after the full 104-byte header
+    uint32_t current_offset = sizeof(TextureHeader) + metadata_size;
     for (size_t i = 0; i < mip_sizes.size(); ++i) {
         mip_offsets.push_back(current_offset);
         current_offset += mip_sizes[i];
@@ -282,10 +311,10 @@ int compress(std::string input_path, std::string output_path, bool do_flip)
     // Write the primary 24-byte header.
     out_file.write(reinterpret_cast<const char*>(&header), sizeof(header));
 
-    // Create and populate the 80-byte metadata block.
-    std::vector<char> metadata(80, 0);
+    // Create and populate the dynamic-sized metadata block.
+    std::vector<char> metadata(metadata_size, 0);
     uint32_t* metadata_u32 = reinterpret_cast<uint32_t*>(metadata.data());
-	
+
     if (transparent_image)
     {
         contains_alpha = 0x01;
@@ -297,18 +326,17 @@ int compress(std::string input_path, std::string output_path, bool do_flip)
     }
 
 	metadata_u32[2] = contains_alpha;
-	
+
     metadata_u32[3] = 0x20; // Compression flag
     metadata_u32[5] = 0x54455843; // "CXET"
     metadata_u32[7] = w;
     metadata_u32[8] = h;
 
     // Write the mipmap offset table, in reverse order (smallest mip's offset first)
-    int table_index = 9; // Starts at file offset 0x3C
+    //TODO: check if this order is correct
+    int table_index = 9;
     for (int i = mip_offsets.size() - 1; i >= 0; --i) {
-        if (table_index < 20) { // Ensure we don't write past the end of the metadata block
-            metadata_u32[table_index] = mip_offsets[i];
-        }
+        metadata_u32[table_index] = mip_offsets[i];
         table_index++;
     }
 
