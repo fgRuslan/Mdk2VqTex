@@ -7,6 +7,7 @@
 
 #include "decompressor.h"
 #include "compressor.h"
+#include "flag_processor.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -199,6 +200,17 @@ int decompress(std::string input_path, std::string output_path, bool do_flip, bo
         }
     }
 
+    std::string base_name;
+    size_t dot_pos = output_path.find_last_of(".");
+    if (dot_pos != std::string::npos) {
+        base_name = output_path.substr(0, dot_pos);
+    }
+    else {
+        base_name = output_path;
+    }
+
+    dump_flags(buffer.data(), base_name + ".ini");
+
     return 0;
 }
 
@@ -340,13 +352,37 @@ int compress(std::string input_path, std::string output_path, bool do_flip)
         table_index++;
     }
 
-    // Write the fully constructed metadata block.
-    out_file.write(metadata.data(), metadata.size());
+    //build the full file buffer of header, metadata to overwrite it using load_flags later
+    std::vector<char> file_buffer;
+    file_buffer.reserve(sizeof(TextureHeader) + metadata_size + total_compressed_size);
+
+    const char* header_ptr = reinterpret_cast<const char*>(&header);
+    file_buffer.insert(file_buffer.end(), header_ptr, header_ptr + sizeof(header));
+    file_buffer.insert(file_buffer.end(), metadata.data(), metadata.data() + metadata.size());
 
     // Write the compressed data for each mip level, from largest to smallest.
     for (const auto& level_data : mip_data_levels) {
-        out_file.write(level_data.data(), level_data.size());
+        file_buffer.insert(file_buffer.end(), level_data.data(), level_data.data() + level_data.size());
     }
+
+    std::string base_name;
+    size_t dot_pos = input_path.find_last_of(".");
+    if (dot_pos != std::string::npos) {
+        base_name = input_path.substr(0, dot_pos);
+    }
+    else {
+        base_name = input_path;
+    }
+    std::string ini_path = base_name + ".ini";
+
+    std::ifstream ini_check(ini_path);
+    if (ini_check.good()) {
+        std::cout << "Loading flags from " << ini_path << std::endl;
+        load_flags(file_buffer.data(), ini_path);
+    }
+
+    out_file.seekp(0);
+    out_file.write(file_buffer.data(), file_buffer.size());
 
     std::cout << "Successfully compressed and saved texture to " << output_path << std::endl;
 

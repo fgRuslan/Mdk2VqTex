@@ -6,15 +6,18 @@ set(SOURCES
     main.cpp
     compressor.cpp
     decompressor.cpp
+    flag_processor.cpp
 )
 
 set(HEADERS
     compressor.h
     decompressor.h
+    flag_processor.h
 	
 	stb_image.h
 	stb_image_resize.h
 	stb_image_write.h
+	SimpleIni.h
 )
 
 find_package(OpenMP REQUIRED)
