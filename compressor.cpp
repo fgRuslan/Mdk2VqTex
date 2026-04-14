@@ -175,8 +175,16 @@ void kmeans_cluster(const std::vector<Color>& pixels, int k, Color centers[4], b
     }
 }
 
+typedef enum {
+    MODE_A_OPAQUE = 0,
+    MODE_B = 1,
+    MODE_C = 2,
+    MODE_A_TRANSPARENT = 3,
+    MODE_D = 4
+} CompressionMode;
+
 // Compress a single block
-std::vector<uint32_t> compress_block(Color block_pixels[4][8]) {
+std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* mode) {
     std::vector<uint32_t> best_data(4, 0);
     float best_error = std::numeric_limits<float>::max();
 
@@ -245,7 +253,9 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8]) {
             }
             data[3] = a8;
             float err = compute_block_error(block_pixels, data);
-            if (err < best_error) { best_error = err; best_data = data; }
+            if (err < best_error) {
+                best_error = err; best_data = data; *mode = MODE_A_OPAQUE;
+            }
         }
 
         // --- Try Mode C ---
@@ -275,7 +285,7 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8]) {
                 set_bit(data, bit_offset+1, (best_idx >> 1) & 1);
             }
             float err = compute_block_error(block_pixels, data);
-            if (err < best_error) { best_error = err; best_data = data; }
+            if (err < best_error) { best_error = err; best_data = data; *mode = MODE_C; }
         }
     }
 
@@ -343,7 +353,7 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8]) {
         }
         data[3] = a8;
         float err = compute_block_error(block_pixels, data);
-        if (err < best_error) { best_error = err; best_data = data; }
+        if (err < best_error) { best_error = err; best_data = data; *mode = MODE_A_TRANSPARENT; }
     }
 
     // --- Try Mode B ---
@@ -390,7 +400,7 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8]) {
             set_bit(data, bit_offset+2, (best_idx >> 2) & 1);
         }
         float err = compute_block_error(block_pixels, data);
-        if (err < best_error) { best_error = err; best_data = data; }
+        if (err < best_error) { best_error = err; best_data = data; *mode = MODE_B; }
     }
 
     // --- Try Mode D (True Alpha Mode) ---
@@ -474,44 +484,75 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8]) {
         }
         
         float err = compute_block_error(block_pixels, data);
-        if (err < best_error) { best_error = err; best_data = data; }
+        if (err < best_error) { best_error = err; best_data = data; *mode = MODE_D; }
     }
     
     return best_data;
 }
 
 // Compress image
-void compress_image(const unsigned char* image_data, int width, int height, std::vector<char>& compressed) {
-    int blocks_x = (width + 7) / 8;
-    int blocks_y = (height + 3) / 4;
+void compress_image(const unsigned char* image_data, int width, int height, std::vector<char>& compressed, std::vector<unsigned char>* mode_image) {
+	int blocks_x = (width + 7) / 8;
+	int blocks_y = (height + 3) / 4;
 	int total_blocks = blocks_x * blocks_y;
 
-    size_t start_size = compressed.size();
-    compressed.resize(start_size + total_blocks * 16);
+	size_t start_size = compressed.size();
+	compressed.resize(start_size + total_blocks * 16);
+
+	if (mode_image) {
+		mode_image->assign(width * height * 4, 0);
+	}
 
 #pragma omp parallel for
 	for (int i = 0; i < total_blocks; ++i) {
-            int bx = i % blocks_x;
-            int by = i / blocks_x;
+		int bx = i % blocks_x;
+		int by = i / blocks_x;
 
-            Color block[4][8];
-            extract_block(image_data, width, height, bx, by, block);
+		Color block[4][8];
+		extract_block(image_data, width, height, bx, by, block);
 
-            for (int i = 0; i < 4; i++)
-            {
-                for (int j = 0; j < 8; j++)
-                {
-                    if (block[i][j].a != 255 && block[i][j].a != 0)
-                    {
-                        transparent_image = true;
-                    }
-                }
-            }
+		for (int r = 0; r < 4; r++) {
+			for (int c = 0; c < 8; c++) {
+				if (block[r][c].a != 255 && block[r][c].a != 0) {
+					transparent_image = true;
+				}
+			}
+		}
 
-            std::vector<uint32_t> block_data = compress_block(block);
-            const char* ptr = reinterpret_cast<const char*>(block_data.data());
-            for (int b = 0; b < 16; ++b) {
-                compressed[start_size + i * 16 + b] = ptr[b];
-            }
-        }
+		CompressionMode mode;
+
+		std::vector<uint32_t> block_data = compress_block(block, &mode);
+		const char* ptr = reinterpret_cast<const char*>(block_data.data());
+		for (int b = 0; b < 16; ++b) {
+			compressed[start_size + i * 16 + b] = ptr[b];
+		}
+
+		if (mode_image) {
+			unsigned char rc = 0, gc = 0, bc = 0;
+			switch (mode) {
+			    case MODE_A_OPAQUE: rc = 0; gc = 0; bc = 255; break;
+			    case MODE_B: rc = 0; gc = 255; bc = 0; break;
+			    case MODE_C: rc = 0; gc = 127; bc = 255; break;
+			    case MODE_A_TRANSPARENT: rc = 255; gc = 0; bc = 0; break;
+			    case MODE_D: rc = 255; gc = 0; bc = 255; break;
+			    default: rc = 0; gc = 0; bc = 0; break;
+			}
+			int start_x = bx * 8;
+			int start_y = by * 4;
+
+			for (int yy = 0; yy < 4; ++yy) {
+				for (int xx = 0; xx < 8; ++xx) {
+					int px = start_x + xx;
+					int py = start_y + yy;
+					if (px < width && py < height) {
+						int idx = (py * width + px) * 4;
+						(*mode_image)[idx + 0] = rc;
+						(*mode_image)[idx + 1] = gc;
+						(*mode_image)[idx + 2] = bc;
+						(*mode_image)[idx + 3] = 255;
+					}
+				}
+			}
+		}
+	}
 }

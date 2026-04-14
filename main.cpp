@@ -254,11 +254,20 @@ int compress(std::string input_path, std::string output_path, bool do_flip)
 
     std::cout << "Generating and compressing mipmaps..." << std::endl;
 
+    std::vector<unsigned char> mode_image;
+    bool first_level = true;
+
     while (true) {
         std::cout << "  Compressing " << current_w << "x" << current_h << "..." << std::endl;
 
         std::vector<char> compressed_level;
-        compress_image(current_image_data, current_w, current_h, compressed_level);
+
+        if (first_level) {
+            compress_image(current_image_data, current_w, current_h, compressed_level, &mode_image);
+            first_level = false;
+        } else {
+            compress_image(current_image_data, current_w, current_h, compressed_level);
+        }
 
         mip_data_levels.push_back(compressed_level);
         mip_sizes.push_back(compressed_level.size());
@@ -379,6 +388,14 @@ int compress(std::string input_path, std::string output_path, bool do_flip)
     if (ini_check.good()) {
         std::cout << "Loading flags from " << ini_path << std::endl;
         load_flags(file_buffer.data(), ini_path);
+    }
+
+    if (!mode_image.empty()) {
+        std::string modes_path = base_name + "_modes.png";
+        if ((int)mode_image.size() == w * h * 4) {
+            stbi_write_png(modes_path.c_str(), w, h, 4, mode_image.data(), w * 4);
+            std::cout << "Saved debug mode map to " << modes_path << std::endl;
+        }
     }
 
     out_file.seekp(0);

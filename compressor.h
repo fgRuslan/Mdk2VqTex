@@ -2,6 +2,6 @@
 #include <vector>
 
 void init_quant_tables();
-void compress_image(const unsigned char* image_data, int width, int height, std::vector<char>& compressed);
+void compress_image(const unsigned char* image_data, int width, int height, std::vector<char>& compressed, std::vector<unsigned char>* mode_image = nullptr);
 
 extern bool transparent_image;
