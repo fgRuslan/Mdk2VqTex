@@ -153,22 +153,44 @@ int decompress(std::string input_path, std::string output_path, bool do_flip, bo
 
     }
     else {
+        //here we decompress only the largest mip
+		//TODO: probably I shouldn't repeat myself and just use the same code as in the loop above, but stop after mip0
         std::vector<uint32_t> decompressed_image_buffer(width * height);
 
-        // Calculate dynamic metadata size for this file
         const uint32_t* metadata_u32 = reinterpret_cast<const uint32_t*>(buffer.data() + sizeof(TextureHeader));
-        uint32_t metadata_u32_count = 9;
+
+        uint32_t metadata_u32_count = 9;//9 base fields
+        //scan starting from index 9 (the last base field) to find valid offsets
         for (int i = 9; i < (size / sizeof(uint32_t)); ++i) {
             uint32_t offset = metadata_u32[i];
-            if (offset > 0 && offset < static_cast<uint32_t>(size)) {
+            if (offset > 0 && offset < size) {
                 metadata_u32_count = i + 1;
-            } else {
+            }
+            else {
                 break;
             }
         }
-        uint32_t metadata_size = metadata_u32_count * sizeof(uint32_t);
 
-        const char* pixel_data_ptr = buffer.data() + sizeof(TextureHeader) + metadata_size;
+        std::vector<uint32_t> mip_offsets_rev;
+        for (int i = 9; i < metadata_u32_count; ++i) {
+            uint32_t offset = metadata_u32[i];
+            if (offset > 0 && offset < size) {
+                mip_offsets_rev.push_back(offset);
+            }
+            else {
+                break; // Stop at the first invalid or zero offset
+            }
+        }
+
+        if (mip_offsets_rev.empty()) {
+            std::cerr << "Error: No mipmap offset data found in the header. Cannot extract all mips." << std::endl;
+            return 1;
+        }
+
+        std::vector<uint32_t> mip_offsets = mip_offsets_rev;
+        std::reverse(mip_offsets.begin(), mip_offsets.end());
+
+        const char* pixel_data_ptr = buffer.data() + mip_offsets[0];
         decompress_image(decompressed_image_buffer.data(), pixel_data_ptr, width, height);
 
         if (do_flip)
