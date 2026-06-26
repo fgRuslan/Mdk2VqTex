@@ -73,8 +73,16 @@ float color_dist(const Color& c1, const Color& c2, bool include_alpha) {
     float dr = c1.r - c2.r;
     float dg = c1.g - c2.g;
     float db = c1.b - c2.b;
-    float da = include_alpha ? c1.a - c2.a : 0;
-    return dr*dr + dg*dg + db*db + da*da;
+    float rgb_err = dr * dr + dg * dg + db * db;
+
+    if (include_alpha) {
+        float da = c1.a - c2.a;
+        float max_a = std::max(c1.a, c2.a) / 255.0f;
+
+        return (rgb_err * max_a) + (da * da * 2.0f);
+    }
+
+    return rgb_err;
 }
 
 // Extract 4x8 block from image
@@ -154,8 +162,12 @@ void kmeans_cluster(const std::vector<Color>& pixels, int k, Color centers[4], b
             groups[best].push_back(pf);
         }
         for (int j = 0; j < k; ++j) {
-            if (groups[j].empty()) continue;
-            ColorF sum = {0,0,0,0};
+            if (groups[j].empty()) {
+                Color p = pixels[dis(gen)];
+                cf_centers[j] = { static_cast<float>(p.r), static_cast<float>(p.g), static_cast<float>(p.b), static_cast<float>(p.a) };
+                continue;
+            }
+            ColorF sum = { 0,0,0,0 };
             for (const auto& s : groups[j]) {
                 sum.r += s.r;
                 sum.g += s.g;
@@ -191,12 +203,38 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
     bool has_transparency = false;
     std::vector<Color> all_pixels;
     std::vector<Color> opaque_pixels;
+
+    int avg_r = 0, avg_g = 0, avg_b = 0, visible_count = 0;
+    for (int row = 0; row < 4; ++row) {
+        for (int col = 0; col < 8; ++col) {
+            if (block_pixels[row][col].a > 0) {
+                avg_r += block_pixels[row][col].r;
+                avg_g += block_pixels[row][col].g;
+                avg_b += block_pixels[row][col].b;
+                visible_count++;
+            }
+        }
+    }
+    if (visible_count > 0 && visible_count < 32) {
+        avg_r /= visible_count; avg_g /= visible_count; avg_b /= visible_count;
+        for (int row = 0; row < 4; ++row) {
+            for (int col = 0; col < 8; ++col) {
+                if (block_pixels[row][col].a == 0) {
+                    block_pixels[row][col].r = avg_r;
+                    block_pixels[row][col].g = avg_g;
+                    block_pixels[row][col].b = avg_b;
+                }
+            }
+        }
+    }
+
     for (int row = 0; row < 4; ++row) {
         for (int col = 0; col < 8; ++col) {
             all_pixels.push_back(block_pixels[row][col]);
-            if (block_pixels[row][col].a < 128) {
+            if (block_pixels[row][col].a < 255) {
                 has_transparency = true;
-            } else {
+            }
+            if (block_pixels[row][col].a >= 128) {
                 opaque_pixels.push_back(block_pixels[row][col]);
             }
         }
@@ -415,18 +453,27 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
         
         Color c[3];
         if (v58 == 0) { // Explicit RGBA colors
-            if (opaque_pixels.empty()) { // Safe fallback
-                c[0] = {0,0,0,255}; c[1] = {0,0,0,255}; c[2] = {0,0,0,255};
-            } else {
-                kmeans_cluster(opaque_pixels, 3, c, true);
+            if (all_pixels.empty()) {
+                c[0] = { 0,0,0,255 }; c[1] = { 0,0,0,255 }; c[2] = { 0,0,0,255 };
             }
-        } else { // Interpolated RGBA colors
+            else {
+                kmeans_cluster(all_pixels, 3, c, true);
+            }
+        }
+        else { // Interpolated RGBA colors
             std::vector<Color> left_p, right_p;
-            for(int r=0; r<4; ++r) for(int col=0; col<4; ++col) left_p.push_back(block_pixels[r][col]);
-            for(int r=0; r<4; ++r) for(int col=0; col<4; ++col) right_p.push_back(block_pixels[r][col+4]);
+            for (int r = 0; r < 4; ++r) for (int col = 0; col < 4; ++col) left_p.push_back(block_pixels[r][col]);
+            for (int r = 0; r < 4; ++r) for (int col = 0; col < 4; ++col) right_p.push_back(block_pixels[r][col + 4]);
             Color l0, l1, r0, r1;
-            if(left_p.empty()){ l0={0,0,0,0}; l1={0,0,0,0}; } else { find_endpoints(left_p, l0, l1, true); }
-            if(right_p.empty()){ r0={0,0,0,0}; r1={0,0,0,0}; } else { find_endpoints(right_p, r0, r1, true); }
+            if (left_p.empty()) { l0 = { 0,0,0,0 }; l1 = { 0,0,0,0 }; }
+            else { find_endpoints(left_p, l0, l1, true); }
+            if (right_p.empty()) { r0 = { 0,0,0,0 }; r1 = { 0,0,0,0 }; }
+            else { find_endpoints(right_p, r0, r1, true); }
+
+            if (color_dist(l0, r0, true) + color_dist(l1, r1, true) > color_dist(l0, r1, true) + color_dist(l1, r0, true)) {
+                std::swap(r0, r1);
+            }
+
             c[0] = l0; c[2] = r0;
             c[1].r = (l1.r + r1.r) / 2; c[1].g = (l1.g + r1.g) / 2;
             c[1].b = (l1.b + r1.b) / 2; c[1].a = (l1.a + r1.a) / 2;
@@ -446,16 +493,18 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
         }
 
         if(v58 == 0) {
-            for (int r=0; r<4; ++r) for (int col=0; col<8; ++col) {
+            for (int r = 0; r < 4; ++r) for (int col = 0; col < 8; ++col) {
                 Color p = block_pixels[r][col];
                 int best_idx = 3;
-                if (p.a >= 128) {
-                    float min_d = std::numeric_limits<float>::max();
-                    for (int i=0; i<3; ++i) {
-                        float d = color_dist(p, c[i], true);
-                        if (d < min_d) { min_d = d; best_idx = i; }
-                    }
+
+                Color transparent_black = { 0, 0, 0, 0 };
+                float min_d = color_dist(p, transparent_black, true);
+
+                for (int i = 0; i < 3; ++i) {
+                    float d = color_dist(p, c[i], true);
+                    if (d < min_d) { min_d = d; best_idx = i; }
                 }
+
                 int bit_offset = (col < 4 ? 0 : 0x20) + 2 * (r * 4 + (col & 3));
                 set_bit(data, bit_offset, best_idx & 1);
                 set_bit(data, bit_offset+1, (best_idx >> 1) & 1);
