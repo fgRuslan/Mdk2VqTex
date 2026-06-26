@@ -521,7 +521,7 @@ int compress(std::string input_path, std::string output_path, bool do_flip, bool
         std::cout << "Loading flags from " << ini_path << std::endl;
         load_flags(file_buffer.data(), ini_path);
     }
-
+#ifdef _DEBUG
     if (!mode_image.empty()) {
         std::string modes_path = base_name + "_modes.png";
         if ((int)mode_image.size() == w * h * 4) {
@@ -529,6 +529,7 @@ int compress(std::string input_path, std::string output_path, bool do_flip, bool
             std::cout << "Saved debug mode map to " << modes_path << std::endl;
         }
     }
+#endif
 
     out_file.seekp(0);
     out_file.write(file_buffer.data(), file_buffer.size());
