@@ -43,3 +43,15 @@ void load_flags(char* texture, std::string input_file)
 	compressionWord = (compressionWord & ~0x20) | (compression << 5);
 	*((uint32_t*)texture + 9) = compressionWord;
 }
+
+bool is_compression_disabled_in_ini(std::string ini_path)
+{
+	CSimpleIniA ini;
+	ini.SetUnicode();
+	if (ini.LoadFile(ini_path.c_str()) >= 0) {
+		if (ini.GetLongValue("flags", "VQ compression", 1) == 0) {
+			return true;
+		}
+	}
+	return false;
+}

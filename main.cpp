@@ -16,6 +16,8 @@
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include "stb_image_resize.h"
 
+//#include "SimpleIni.h"
+
 #pragma pack(push,1)
 struct TextureHeader {
     uint32_t magic = 0x000007D1;
@@ -64,12 +66,57 @@ int decompress(std::string input_path, std::string output_path, bool do_flip, bo
     std::cout << "Texture Info:" << std::endl;
     std::cout << "  Dimensions: " << width << "x" << height << std::endl;
 
+    const uint32_t* metadata_u32 = reinterpret_cast<const uint32_t*>(buffer.data() + sizeof(TextureHeader));
+    bool is_compressed = (metadata_u32[3] & 0x20) != 0;
+
+    if (!is_compressed) {
+        std::cout << "The texture is UNCOMPRESSED. Reading raw pixel data..." << std::endl;
+
+        int channels = header->flags;
+
+        int data_offset = sizeof(TextureHeader) + 9 * sizeof(uint32_t);
+
+        std::cout << data_offset + width * height * channels << std::endl;
+        std::cout << buffer.size() << std::endl;
+
+        std::vector<uint8_t> rgba_pixels(width * height * 4);
+        const uint8_t* raw_data = reinterpret_cast<const uint8_t*>(buffer.data() + data_offset);
+
+        for (int i = 0; i < width * height; ++i) {
+            rgba_pixels[i * 4 + 0] = raw_data[i * channels + 2];
+            rgba_pixels[i * 4 + 1] = raw_data[i * channels + 1];
+            rgba_pixels[i * 4 + 2] = raw_data[i * channels + 0];
+            rgba_pixels[i * 4 + 3] = (channels == 4) ? raw_data[i * channels + 3] : 255;
+        }
+
+        if (do_flip) {
+            std::cout << "Performing a flip on Y axis..." << std::endl;
+            for (int y = 0; y < height / 2; ++y) {
+                uint8_t* row1 = rgba_pixels.data() + y * width * 4;
+                uint8_t* row2 = rgba_pixels.data() + (height - 1 - y) * width * 4;
+                for (int x = 0; x < width * 4; ++x) {
+                    std::swap(row1[x], row2[x]);
+                }
+            }
+        }
+
+        if (stbi_write_png(output_path.c_str(), width, height, 4, rgba_pixels.data(), width * 4)) {
+            std::cout << "Successfully saved uncompressed texture to " << output_path << std::endl;
+        }
+        else {
+            std::cerr << "Error: Failed to write output PNG file." << std::endl;
+            return 1;
+        }
+
+        std::string base_name = output_path.substr(0, output_path.find_last_of("."));
+        dump_flags((char*)buffer.data(), base_name + ".ini");
+
+        return 0;
+    }
+
     if (decompress_all_mips) {
         std::cout << "Decompressing all mipmaps..." << std::endl;
 
-        const uint32_t* metadata_u32 = reinterpret_cast<const uint32_t*>(buffer.data() + sizeof(TextureHeader));
-
-        
         uint32_t metadata_u32_count = 9;//9 base fields
         //scan starting from index 9 (the last base field) to find valid offsets
         for (int i = 9; i < (size / sizeof(uint32_t)); ++i) {
@@ -236,7 +283,7 @@ int decompress(std::string input_path, std::string output_path, bool do_flip, bo
     return 0;
 }
 
-int compress(std::string input_path, std::string output_path, bool do_flip)
+int compress(std::string input_path, std::string output_path, bool do_flip, bool uncompressed)
 {
     int w, h, channels;
 	uint32_t contains_alpha = 0x0;
@@ -258,6 +305,70 @@ int compress(std::string input_path, std::string output_path, bool do_flip)
                 std::swap(row1[x], row2[x]);
             }
         }
+    }
+
+    std::string base_name = input_path.substr(0, input_path.find_last_of("."));
+    std::string ini_path = base_name + ".ini";
+
+    bool is_uncompressed = is_compression_disabled_in_ini(ini_path);
+
+    if (is_uncompressed) {
+        std::cout << "Saving in UNCOMPRESSED mode..." << std::endl;
+
+        int tex_channels = (channels == 3) ? 3 : 4;
+        uint32_t contains_alpha = 0x0;
+
+        if (tex_channels == 4) {
+            for (int i = 0; i < w * h * 4; i += 4) {
+                if (image_data[i + 3] < 255) {
+                    contains_alpha = 0x01;
+                    break;
+                }
+            }
+        }
+
+        TextureHeader header;
+        header.width = w;
+        header.height = h;
+        header.flags = tex_channels;
+        header.data_size = w * h * tex_channels;
+
+        uint32_t metadata_size = 9 * sizeof(uint32_t);
+        std::vector<char> metadata(metadata_size, 0);
+        uint32_t* metadata_u32 = reinterpret_cast<uint32_t*>(metadata.data());
+
+        metadata_u32[2] = contains_alpha;
+        metadata_u32[3] = 0x00;//no compression
+        metadata_u32[5] = 0x54455843;
+        metadata_u32[7] = w;
+        metadata_u32[8] = h;
+
+        std::vector<char> file_buffer;
+        file_buffer.reserve(sizeof(TextureHeader) + metadata_size + header.data_size);
+
+        const char* header_ptr = reinterpret_cast<const char*>(&header);
+        file_buffer.insert(file_buffer.end(), header_ptr, header_ptr + sizeof(header));
+        file_buffer.insert(file_buffer.end(), metadata.data(), metadata.data() + metadata.size());
+
+        std::vector<char> raw_pixels(w * h * tex_channels);
+        for (int i = 0; i < w * h; ++i) {
+            raw_pixels[i * tex_channels + 0] = image_data[i * 4 + 2];//b
+            raw_pixels[i * tex_channels + 1] = image_data[i * 4 + 1];//g
+            raw_pixels[i * tex_channels + 2] = image_data[i * 4 + 0];//r
+            if (tex_channels == 4) {
+                raw_pixels[i * tex_channels + 3] = image_data[i * 4 + 3];//a
+            }
+        }
+        file_buffer.insert(file_buffer.end(), raw_pixels.begin(), raw_pixels.end());
+
+        load_flags(file_buffer.data(), ini_path);
+
+        std::ofstream out_file(output_path, std::ios::binary);
+        out_file.write(file_buffer.data(), file_buffer.size());
+
+        std::cout << "Successfully saved uncompressed texture to " << output_path << std::endl;
+        stbi_image_free(image_data);
+        return 0;
     }
 
     init_quant_tables();
@@ -396,7 +507,7 @@ int compress(std::string input_path, std::string output_path, bool do_flip)
         file_buffer.insert(file_buffer.end(), level_data.data(), level_data.data() + level_data.size());
     }
 
-    std::string base_name;
+    //std::string base_name;
     size_t dot_pos = input_path.find_last_of(".");
     if (dot_pos != std::string::npos) {
         base_name = input_path.substr(0, dot_pos);
@@ -404,7 +515,6 @@ int compress(std::string input_path, std::string output_path, bool do_flip)
     else {
         base_name = input_path;
     }
-    std::string ini_path = base_name + ".ini";
 
     std::ifstream ini_check(ini_path);
     if (ini_check.good()) {
@@ -477,7 +587,7 @@ int main(int argc, char* argv[]) {
 
     if (endsWith(input_path_lower, "png"))
     {
-        return compress(input_path, output_path, do_flip);
+        return compress(input_path, output_path, do_flip, decompress_all_mips);
     }
     else
     {
