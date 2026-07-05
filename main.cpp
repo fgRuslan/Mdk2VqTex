@@ -41,79 +41,8 @@ bool endsWith(std::string const& fullString, std::string const& ending) {
     }
 }
 
-void benchmark_single(const std::string& png_path) {
-    static bool tables_initialized = false;
-    if (!tables_initialized) {
-        init_quant_tables();
-        tables_initialized = true;
-    }
-
-    int w, h, ch;
-    unsigned char* img = stbi_load(png_path.c_str(), &w, &h, &ch, 4);
-    if (!img) {
-        std::cerr << "Cannot load: " << png_path << std::endl;
-        return;
-    }
-    std::vector<uint8_t> original(img, img + w * h * 4);
-    stbi_image_free(img);
-
-    std::vector<char> compressed;
-    compress_image(original.data(), w, h, compressed, nullptr);
-
-    std::vector<uint32_t> decoded(w * h);
-    decompress_image(decoded.data(), compressed.data(), w, h);
-
-    for (uint32_t& pixel : decoded) {
-        uint32_t a = (pixel >> 24) & 0xFF;
-        uint32_t r = (pixel >> 16) & 0xFF;
-        uint32_t g = (pixel >> 8) & 0xFF;
-        uint32_t b = (pixel >> 0) & 0xFF;
-        pixel = (a << 24) | (b << 16) | (g << 8) | r;
-    }
-
-    const uint8_t* recon = reinterpret_cast<const uint8_t*>(decoded.data());
-
-    double sse = 0.0;
-    int valid_channels = 0;
-
-    for (int i = 0; i < w * h; ++i) {
-        int idx = i * 4;
-
-        uint8_t orig_a = original[idx + 3];
-        uint8_t recon_a = recon[idx + 3];
-
-        if (orig_a == 0 && recon_a == 0) {
-            valid_channels += 1;
-            continue;
-        }
-
-        for (int c = 0; c < 4; ++c) {
-            double diff = static_cast<double>(original[idx + c]) - static_cast<double>(recon[idx + c]);
-            sse += diff * diff;
-            valid_channels++;
-        }
-    }
-
-    double mse = (valid_channels > 0) ? (sse / valid_channels) : 0.0;
-    double rmse = std::sqrt(mse);
-    double psnr = (rmse == 0.0) ? 999.0 : 20.0 * std::log10(255.0 / rmse);
-
-    std::ofstream LogFile("Textures.txt", std::ofstream::app);
-    LogFile << std::fixed << std::setprecision(2);
-    LogFile << png_path << " - RMS = " << std::setw(10) << rmse
-        << " PSNR = " << std::setw(10) << psnr << std::endl;
-
-    LogFile.close();
-
-    std::cout << std::fixed << std::setprecision(2);
-    std::cout << png_path << " - RMS = " << std::setw(10) << rmse
-        << " PSNR = " << std::setw(10) << psnr << std::endl;
-}
-
-void fucking_shit(std::vector<char> compressed, unsigned char* original_image, uint16_t width, uint16_t height, const std::string& png_path)
+void log_error(std::vector<char> compressed, unsigned char* original_image, uint16_t width, uint16_t height, const std::string& png_path)
 {
-    std::vector<uint8_t> original(original_image, original_image + width * height * 4);
-
     std::vector<uint32_t> decoded(width * height);
     decompress_image(decoded.data(), compressed.data(), width, height);
 
@@ -133,7 +62,7 @@ void fucking_shit(std::vector<char> compressed, unsigned char* original_image, u
     for (int i = 0; i < width * height; ++i) {
         int idx = i * 4;
 
-        uint8_t orig_a = original[idx + 3];
+        uint8_t orig_a = original_image[idx + 3];
         uint8_t recon_a = recon[idx + 3];
 
         if (orig_a == 0 && recon_a == 0) {
@@ -142,7 +71,7 @@ void fucking_shit(std::vector<char> compressed, unsigned char* original_image, u
         }
 
         for (int c = 0; c < 4; ++c) {
-            double diff = static_cast<double>(original[idx + c]) - static_cast<double>(recon[idx + c]);
+            double diff = static_cast<double>(original_image[idx + c]) - static_cast<double>(recon[idx + c]);
             sse += diff * diff;
             valid_channels++;
         }
@@ -525,7 +454,7 @@ int compress(std::string input_path, std::string output_path, bool do_flip, bool
         if (first_level) {
             compress_image(current_image_data, current_w, current_h, compressed_level, &mode_image);
             first_level = false;
-            fucking_shit(compressed_level, current_image_data, current_w, current_h, input_path);
+            log_error(compressed_level, current_image_data, current_w, current_h, input_path);
         }
         else {
             compress_image(current_image_data, current_w, current_h, compressed_level);
