@@ -2,6 +2,8 @@
 #include <iostream>
 #include "SimpleIni.h"
 
+#include <cstdint>
+
 void dump_flags(char* texture, std::string output_file)
 {
 	CSimpleIniA ini;
