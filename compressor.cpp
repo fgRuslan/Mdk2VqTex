@@ -60,12 +60,9 @@ void init_quant_tables() {
 
 // Bit setter
 inline void set_bit(std::vector<uint32_t>& data, int bit_index, uint32_t value) {
-    if ((bit_index >> 5) >= data.size()) return;
-    if (value) {
-        data[bit_index >> 5] |= (1u << (bit_index & 0x1F));
-    } else {
-        data[bit_index >> 5] &= ~(1u << (bit_index & 0x1F));
-    }
+    // Candidate blocks are zero-initialized and every encoded field is written once.
+    // Avoid a bounds branch and read/modify/clear path for each individual bit.
+    data[bit_index >> 5] |= (value & 1u) << (bit_index & 0x1F);
 }
 
 // Distance between colors
@@ -120,14 +117,17 @@ float compute_block_error(Color original[4][8], const std::vector<uint32_t>& blo
 
 // Find max distance endpoints
 void find_endpoints(const std::vector<Color>& pixels, Color& end1, Color& end2, bool include_alpha) {
+    if (pixels.empty()) return;
     float max_dist = -1.0f;
-    for (const auto& p1 : pixels) {
-        for (const auto& p2 : pixels) {
-            float d = color_dist(p1, p2, include_alpha);
+    end1 = pixels[0];
+    end2 = pixels[0];
+    for (size_t i = 0; i + 1 < pixels.size(); ++i) {
+        for (size_t j = i + 1; j < pixels.size(); ++j) {
+            float d = color_dist(pixels[i], pixels[j], include_alpha);
             if (d > max_dist) {
                 max_dist = d;
-                end1 = p1;
-                end2 = p2;
+                end1 = pixels[i];
+                end2 = pixels[j];
             }
         }
     }
@@ -149,14 +149,18 @@ void kmeans_cluster(const std::vector<Color>& pixels, int k, Color centers[4], b
     for (int iter = 0; iter < 10; ++iter) {
         std::fill(sums, sums + k, ColorF{0, 0, 0, 0});
         std::fill(counts, counts + k, 0);
+        Color center_colors[4];
+        for (int j = 0; j < k; ++j) {
+            center_colors[j] = {
+                static_cast<uint8_t>(cf_centers[j].r), static_cast<uint8_t>(cf_centers[j].g),
+                static_cast<uint8_t>(cf_centers[j].b), static_cast<uint8_t>(cf_centers[j].a)};
+        }
         for (const auto& p : pixels) {
             ColorF pf = {static_cast<float>(p.r), static_cast<float>(p.g), static_cast<float>(p.b), static_cast<float>(p.a)};
             int best = 0;
-            Color c0 = {static_cast<uint8_t>(cf_centers[0].r), static_cast<uint8_t>(cf_centers[0].g), static_cast<uint8_t>(cf_centers[0].b), static_cast<uint8_t>(cf_centers[0].a)};
-            float best_d = color_dist(p, c0, include_alpha);
+            float best_d = color_dist(p, center_colors[0], include_alpha);
             for (int j = 1; j < k; ++j) {
-                Color cj = {static_cast<uint8_t>(cf_centers[j].r), static_cast<uint8_t>(cf_centers[j].g), static_cast<uint8_t>(cf_centers[j].b), static_cast<uint8_t>(cf_centers[j].a)};
-                float d = color_dist(p, cj, include_alpha);
+                float d = color_dist(p, center_colors[j], include_alpha);
                 if (d < best_d) {
                     best_d = d;
                     best = j;
@@ -274,6 +278,10 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
                 c1_comps[1] = (c1_comps[1] & 0xF8) | (c1_comps[1] >> 6);
                 c2_comps[1] = (c2_comps[1] & 0xF8) | (c2_comps[1] >> 6);
                 generate_palette_from_ida(palette, c1_comps, c2_comps, false);
+                Color palette_colors[4];
+                for (int i = 0; i < 4; ++i) palette_colors[i] = {
+                    static_cast<uint8_t>(palette[i*4]), static_cast<uint8_t>(palette[i*4+1]),
+                    static_cast<uint8_t>(palette[i*4+2]), static_cast<uint8_t>(palette[i*4+3])};
                 
                 int bit_stream_offset = dword_4B3B88[block_idx];
                 for (int r=0; r<4; ++r) for (int c=0; c<4; ++c) {
@@ -281,8 +289,7 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
                     int best_idx = 0;
                     float min_d = std::numeric_limits<float>::max();
                     for (int i=0; i<4; ++i) {
-                        Color pal_c = {(uint8_t)palette[i*4],(uint8_t)palette[i*4+1],(uint8_t)palette[i*4+2],(uint8_t)palette[i*4+3]};
-                        float d = color_dist(p, pal_c, false);
+                        float d = color_dist(p, palette_colors[i], false);
                         if (d < min_d) { min_d = d; best_idx = i; }
                     }
                     int bit_offset = r * 8 + c * 2;
@@ -372,6 +379,10 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
             c1_comps[1] = (c1_comps[1] & 0xF8) | (c1_comps[1] >> 6);
             c2_comps[1] = (c2_comps[1] & 0xF8) | (c2_comps[1] >> 6);
             generate_palette_from_ida(palette, c1_comps, c2_comps, true);
+            Color palette_colors[4];
+            for (int i = 0; i < 4; ++i) palette_colors[i] = {
+                static_cast<uint8_t>(palette[i*4]), static_cast<uint8_t>(palette[i*4+1]),
+                static_cast<uint8_t>(palette[i*4+2]), static_cast<uint8_t>(palette[i*4+3])};
             
             int bit_stream_offset = dword_4B3B88[block_idx];
             for (int r=0; r<4; ++r) for (int c=0; c<4; ++c) {
@@ -382,8 +393,7 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
                 } else {
                     float min_d = std::numeric_limits<float>::max();
                     for (int i=0; i<3; ++i) { // Only check the 3 opaque colors
-                        Color pal_c = {(uint8_t)palette[i*4],(uint8_t)palette[i*4+1],(uint8_t)palette[i*4+2],(uint8_t)palette[i*4+3]};
-                        float d = color_dist(p, pal_c, false);
+                        float d = color_dist(p, palette_colors[i], false);
                         if (d < min_d) { min_d = d; best_idx = i; }
                     }
                 }
@@ -421,6 +431,10 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
         uint32_t palette[32];
         uint32_t c1_comps_rgb[3]={c1.r,c1.g,c1.b}, c2_comps_rgb[3]={c2.r,c2.g,c2.b};
         generate_palette_mode1(palette, c1_comps_rgb, c2_comps_rgb);
+        Color palette_colors[7];
+        for (int i = 0; i < 7; ++i) palette_colors[i] = {
+            static_cast<uint8_t>(palette[i*4]), static_cast<uint8_t>(palette[i*4+1]),
+            static_cast<uint8_t>(palette[i*4+2]), static_cast<uint8_t>(palette[i*4+3])};
 
         for (int r=0; r<4; ++r) for (int c=0; c<8; ++c) {
             Color p = block_pixels[r][c];
@@ -430,8 +444,7 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
             } else {
                 float min_d = std::numeric_limits<float>::max();
                 for (int i=0; i<7; ++i) {
-                    Color pal_c = {(uint8_t)palette[i*4],(uint8_t)palette[i*4+1],(uint8_t)palette[i*4+2],(uint8_t)palette[i*4+3]};
-                    float d = color_dist(p, pal_c, false);
+                    float d = color_dist(p, palette_colors[i], false);
                     if (d < min_d) { min_d = d; best_idx = i; }
                 }
             }
