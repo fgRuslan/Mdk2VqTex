@@ -137,15 +137,18 @@ void find_endpoints(const std::vector<Color>& pixels, Color& end1, Color& end2, 
 void kmeans_cluster(const std::vector<Color>& pixels, int k, Color centers[4], bool include_alpha) {
     if (pixels.empty()) return;
     std::vector<ColorF> cf_centers(k);
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, pixels.size() - 1);
+    // Keep randomized starts: the previous deterministic start reduced quality on tested input.
+    thread_local std::mt19937 gen(std::random_device{}());
+    std::uniform_int_distribution<size_t> pick(0, pixels.size() - 1);
     for (int i = 0; i < k; ++i) {
-        Color p = pixels[dis(gen)];
+        Color p = pixels[pick(gen)];
         cf_centers[i] = {static_cast<float>(p.r), static_cast<float>(p.g), static_cast<float>(p.b), static_cast<float>(p.a)};
     }
+    ColorF sums[4];
+    int counts[4];
     for (int iter = 0; iter < 10; ++iter) {
-        std::vector<std::vector<ColorF>> groups(k);
+        std::fill(sums, sums + k, ColorF{0, 0, 0, 0});
+        std::fill(counts, counts + k, 0);
         for (const auto& p : pixels) {
             ColorF pf = {static_cast<float>(p.r), static_cast<float>(p.g), static_cast<float>(p.b), static_cast<float>(p.a)};
             int best = 0;
@@ -159,24 +162,19 @@ void kmeans_cluster(const std::vector<Color>& pixels, int k, Color centers[4], b
                     best = j;
                 }
             }
-            groups[best].push_back(pf);
+            sums[best].r += pf.r; sums[best].g += pf.g;
+            sums[best].b += pf.b; sums[best].a += pf.a;
+            ++counts[best];
         }
         for (int j = 0; j < k; ++j) {
-            if (groups[j].empty()) {
-                Color p = pixels[dis(gen)];
-                cf_centers[j] = { static_cast<float>(p.r), static_cast<float>(p.g), static_cast<float>(p.b), static_cast<float>(p.a) };
+            if (counts[j] == 0) {
+                Color p = pixels[pick(gen)];
+                cf_centers[j] = {static_cast<float>(p.r), static_cast<float>(p.g),
+                                 static_cast<float>(p.b), static_cast<float>(p.a)};
                 continue;
             }
-            ColorF sum = { 0,0,0,0 };
-            for (const auto& s : groups[j]) {
-                sum.r += s.r;
-                sum.g += s.g;
-                sum.b += s.b;
-                sum.a += s.a;
-            }
-            int sz = groups[j].size();
-            sum.r /= sz; sum.g /= sz; sum.b /= sz; sum.a /= sz;
-            cf_centers[j] = sum;
+            float inv = 1.0f / counts[j];
+            cf_centers[j] = {sums[j].r * inv, sums[j].g * inv, sums[j].b * inv, sums[j].a * inv};
         }
     }
     for (int j = 0; j < k; ++j) {
@@ -203,6 +201,8 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
     bool has_transparency = false;
     std::vector<Color> all_pixels;
     std::vector<Color> opaque_pixels;
+    all_pixels.reserve(32);
+    opaque_pixels.reserve(32);
 
     int avg_r = 0, avg_g = 0, avg_b = 0, visible_count = 0;
     for (int row = 0; row < 4; ++row) {
@@ -552,7 +552,8 @@ void compress_image(const unsigned char* image_data, int width, int height, std:
 		mode_image->assign(width * height * 4, 0);
 	}
 
-#pragma omp parallel for
+    int found_partial_alpha = 0;
+#pragma omp parallel for reduction(|:found_partial_alpha)
 	for (int i = 0; i < total_blocks; ++i) {
 		int bx = i % blocks_x;
 		int by = i / blocks_x;
@@ -563,7 +564,7 @@ void compress_image(const unsigned char* image_data, int width, int height, std:
 		for (int r = 0; r < 4; r++) {
 			for (int c = 0; c < 8; c++) {
 				if (block[r][c].a != 255 && block[r][c].a != 0) {
-					transparent_image = true;
+					found_partial_alpha = 1;
 				}
 			}
 		}
@@ -604,4 +605,5 @@ void compress_image(const unsigned char* image_data, int width, int height, std:
 			}
 		}
 	}
+	if (found_partial_alpha) transparent_image = true;
 }
