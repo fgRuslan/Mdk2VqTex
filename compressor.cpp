@@ -136,7 +136,7 @@ void find_endpoints(const std::vector<Color>& pixels, Color& end1, Color& end2, 
 // Simple k-means for clustering
 void kmeans_cluster(const std::vector<Color>& pixels, int k, Color centers[4], bool include_alpha) {
     if (pixels.empty()) return;
-    std::vector<ColorF> cf_centers(k);
+    ColorF cf_centers[4];
     // Keep randomized starts: the previous deterministic start reduced quality on tested input.
     thread_local std::mt19937 gen(std::random_device{}());
     std::uniform_int_distribution<size_t> pick(0, pixels.size() - 1);
@@ -250,6 +250,7 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
             
             for (int block_idx = 0; block_idx < 2; ++block_idx) {
                 std::vector<Color> sub_pixels;
+                sub_pixels.reserve(16);
                 for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) sub_pixels.push_back(block_pixels[r][block_idx * 4 + c]);
                 
                 Color c1, c2;
@@ -338,6 +339,8 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
         for (int block_idx = 0; block_idx < 2; ++block_idx) {
             std::vector<Color> sub_pixels;
             std::vector<Color> opaque_sub_pixels;
+            sub_pixels.reserve(16);
+            opaque_sub_pixels.reserve(16);
             for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
                 Color p = block_pixels[r][block_idx * 4 + c];
                 sub_pixels.push_back(p);
@@ -462,6 +465,8 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
         }
         else { // Interpolated RGBA colors
             std::vector<Color> left_p, right_p;
+            left_p.reserve(16);
+            right_p.reserve(16);
             for (int r = 0; r < 4; ++r) for (int col = 0; col < 4; ++col) left_p.push_back(block_pixels[r][col]);
             for (int r = 0; r < 4; ++r) for (int col = 0; col < 4; ++col) right_p.push_back(block_pixels[r][col + 4]);
             Color l0, l1, r0, r1;
