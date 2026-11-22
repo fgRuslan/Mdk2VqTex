@@ -392,7 +392,7 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
                     best_idx = 3;
                 } else {
                     float min_d = std::numeric_limits<float>::max();
-                    for (int i=0; i<3; ++i) { // Only check the 3 opaque colors
+                    for (int i=0; i<3; ++i) {
                         float d = color_dist(p, palette_colors[i], false);
                         if (d < min_d) { min_d = d; best_idx = i; }
                     }
@@ -511,11 +511,11 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
         }
 
         if(v58 == 0) {
+            const Color transparent_black = {0, 0, 0, 0};
             for (int r = 0; r < 4; ++r) for (int col = 0; col < 8; ++col) {
                 Color p = block_pixels[r][col];
                 int best_idx = 3;
 
-                Color transparent_black = { 0, 0, 0, 0 };
                 float min_d = color_dist(p, transparent_black, true);
 
                 for (int i = 0; i < 3; ++i) {
@@ -532,6 +532,10 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
                 uint32_t palette[4][4];
                 if (block_idx==0) for(int j=0;j<4;++j) for(int k=0;k<4;++k) palette[j][k] = (c[0].components[k]*(3-j) + c[1].components[k]*j+1)/3;
                 else for(int j=0;j<4;++j) for(int k=0;k<4;++k) palette[j][k] = (c[2].components[k]*(3-j) + c[1].components[k]*j+1)/3;
+                Color palette_colors[4];
+                for (int i = 0; i < 4; ++i) palette_colors[i] = {
+                    static_cast<uint8_t>(palette[i][0]), static_cast<uint8_t>(palette[i][1]),
+                    static_cast<uint8_t>(palette[i][2]), static_cast<uint8_t>(palette[i][3])};
                 
                 int bit_stream_offset = dword_4B3B90[block_idx];
                 for (int r=0; r<4; ++r) for (int col=0; col<4; ++col) {
@@ -539,8 +543,7 @@ std::vector<uint32_t> compress_block(Color block_pixels[4][8], CompressionMode* 
                     int best_idx = 0;
                     float min_d = std::numeric_limits<float>::max();
                     for (int i=0; i<4; ++i) {
-                        Color pal_c = {(uint8_t)palette[i][0], (uint8_t)palette[i][1], (uint8_t)palette[i][2], (uint8_t)palette[i][3]};
-                        float d = color_dist(p, pal_c, true);
+                        float d = color_dist(p, palette_colors[i], true);
                         if (d < min_d) { min_d = d; best_idx = i; }
                     }
                     int bit_offset = r * 8 + col * 2;
